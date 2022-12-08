@@ -117,6 +117,7 @@ void loop() {
     display.println("");
     display.println("RSSI: " + String(LoRa.packetRssi()));
     display.println("Snr: " + String(LoRa.packetSnr()));
+    display.invertDisplay(false);
     display.display();
   }
 
@@ -134,6 +135,7 @@ void loop() {
     display.setCursor(0,0);
     display.println("Message sent @");
     display.println(now);
+    display.invertDisplay(true);
     display.display();
   }
 }
