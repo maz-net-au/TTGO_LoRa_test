@@ -42,13 +42,14 @@ LoRa lib https://github.com/sandeepmistry/arduino-LoRa
 #define MODE_SLEEP 0x00
 #define MODE_STDBY 0x01
 
-void setup() {
-  Serial.begin(115200);
-  Serial.println("");
+unsigned long nextSend = 0;
 
   // using the arduino "Wire" library that is known to have issues
   Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RST);
 
+void setup() {
+  Serial.begin(115200);
+  Serial.println("");
 
   //reset OLED display via software
   pinMode(OLED_RST, OUTPUT);
@@ -62,15 +63,10 @@ void setup() {
     for(;;); // Don't proceed, loop forever
   }
 
-   display.clearDisplay();
+  display.clearDisplay();
   display.setTextColor(WHITE);
   display.setTextSize(1);
-  display.setCursor(0,0);
-  display.println("HI ROB");
-  display.println("TEST MESSAGE");
-  display.display();
-  
-  Serial.println("LoRa Sender Test");
+  display.setCursor(0,0); 
 
 //  LoRa.writeRegister(REG_OP_MODE, MODE_LONG_RANGE_MODE | MODE_SLEEP);
 //  delay(10);
@@ -87,19 +83,57 @@ void setup() {
 //  delay(10);
 //  
 //
-//  LoRa.begin(868E6);
-//  LoRa.setSpreadingFactor(12);
-//  LoRa.setSignalBandwidth(125E3);
-//  LoRa.setCodingRate4(8);
-//  LoRa.setTxPower(20);
-//  LoRa.enableCrc();
-  
-  // LoRa.begin(BAND);
-
-
-  
+  LoRa.setPins(SS, RST, DIO0);
+  int res = LoRa.begin(BAND);
+  display.println("start radio " + String(res));
+  display.display();
+  LoRa.setSyncWord(136383);
+  LoRa.setTxPower(20);
+  LoRa.enableCrc();  
+  LoRa.setSpreadingFactor(12);
+  LoRa.setSignalBandwidth(125E3);
+  LoRa.setCodingRate4(8);
+  display.println("Waiting for messages");
+  display.display();
 }
 
 void loop() {
-  
+  // if we don't know when we're sending, pick a time in the future
+  if(nextSend == 0)
+  {
+    nextSend = millis() + random(55000) + 5000; // sometime between 5 and 60 seconds from now
+  }
+  // check if there's a packet waiting
+  // read and display it
+  String incoming = "";
+  while (LoRa.available()) {
+    incoming += (char)LoRa.read();
+  }
+  if(incoming != "")
+  {
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.println(incoming);
+    display.println("");
+    display.println("RSSI: " + String(LoRa.packetRssi()));
+    display.println("Snr: " + String(LoRa.packetSnr()));
+    display.display();
+  }
+
+  // else, if the time is up, make and send a packet
+  if(millis() > nextSend)
+  {
+    nextSend = 0;
+    unsigned long now = millis();
+    String outgoing = "The time is now " + String(now) + " since boot";
+    LoRa.beginPacket();
+    LoRa.write(outgoing.length());
+    LoRa.print(outgoing);
+    LoRa.endPacket();
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.println("Message sent @");
+    display.println(now);
+    display.display();
+  }
 }
