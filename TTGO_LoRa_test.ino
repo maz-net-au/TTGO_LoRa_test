@@ -19,13 +19,13 @@ LoRa lib https://github.com/sandeepmistry/arduino-LoRa
 #define MISO 19
 #define MOSI 27
 #define SS 18
-#define RST 14
+#define RST 23
 #define DIO0 26
 
 #define BAND 433E6
 //
-//#define OLED_SDA 4
-//#define OLED_SCL 15 
+#define OLED_SDA 21
+#define OLED_SCL 22 
 //#define OLED_RST 16
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 64
@@ -48,15 +48,16 @@ unsigned long nextSend = 0;
   Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RST);
 
 void setup() {
+  //initialize Serial Monitor
   Serial.begin(115200);
-  Serial.println("");
-
+  
   //reset OLED display via software
   pinMode(OLED_RST, OUTPUT);
   digitalWrite(OLED_RST, LOW);
   delay(20);
   digitalWrite(OLED_RST, HIGH);
-
+  
+  //initialize OLED
   Wire.begin(OLED_SDA, OLED_SCL);
   if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3c, false, false)) { // Address 0x3C for 128x32
     Serial.println(F("SSD1306 allocation failed"));
@@ -66,69 +67,50 @@ void setup() {
   display.clearDisplay();
   display.setTextColor(WHITE);
   display.setTextSize(1);
-  display.setCursor(0,0); 
-
-//  LoRa.writeRegister(REG_OP_MODE, MODE_LONG_RANGE_MODE | MODE_SLEEP);
-//  delay(10);
-//  LoRa.writeRegister(REG_PA_CONFIG, 0b11111111); // That's for the transceiver
-//  LoRa.writeRegister(REG_PA_DAC, PA_DAC_HIGH); // That's for the transceiver
-//  LoRa.writeRegister(REG_LNA, 00); // TURN OFF LNA FOR TRANSMIT
-//  uint8_t BW = 0x48, SF = 0xc4, AGC = 0x0c; // SF 12 BW 125KHz AGC
-//  Serial.println("SF 0x" + String(SF, HEX) + "; BW: 0x" + String(BW, HEX) + "; AGC: 0x" + String(AGC, HEX));
-//  LoRa.writeRegister(REG_MODEM_CONFIG_1, BW);
-//  LoRa.writeRegister(REG_MODEM_CONFIG_2, SF);
-//  LoRa.writeRegister(REG_MODEM_CONFIG_3, AGC);
-//  delay(10);
-//  LoRa.writeRegister(REG_OP_MODE, MODE_LONG_RANGE_MODE | MODE_STDBY);
-//  delay(10);
-//  
-//
-  LoRa.setPins(SS, RST, DIO0);
-  int res = LoRa.begin(BAND);
-  display.println("start radio " + String(res));
+  display.setCursor(0,0);
+  display.print("LORA RECEIVER ");
   display.display();
+
+  Serial.println("LoRa Duplex Test");
+  
+  //SPI LoRa pins
+  SPI.begin(SCK, MISO, MOSI, SS);
+  //setup LoRa transceiver module
+  LoRa.setPins(SS, RST, DIO0);
+
+  if (!LoRa.begin(BAND)) {
+    Serial.println("Starting LoRa failed!");
+    while (1);
+  }
+
   LoRa.setSyncWord(136383);
   LoRa.setTxPower(20);
   LoRa.enableCrc();  
   LoRa.setSpreadingFactor(12);
   LoRa.setSignalBandwidth(125E3);
   LoRa.setCodingRate4(8);
+  
+  Serial.println("LoRa Initializing OK!");
+  display.setCursor(0,10);
   display.println("Waiting for messages");
-  display.display();
+  display.display(); 
 }
 
 void loop() {
-  // if we don't know when we're sending, pick a time in the future
-  if(nextSend == 0)
+  if (nextSend == 0)
   {
-    nextSend = millis() + random(55000) + 5000; // sometime between 5 and 60 seconds from now
+    // Schedule a send in the future, either after we have just sent a message, or
+    // when we first loop.
+    nextSend = millis() + random(25000) + 5000; // 5 - 30 seconds from now.
   }
-  // check if there's a packet waiting
-  // read and display it
-  String incoming = "";
-  while (LoRa.available()) {
-    incoming += (char)LoRa.read();
-  }
-  if(incoming != "")
+  else if (millis() > nextSend)
   {
-    display.clearDisplay();
-    display.setCursor(0,0);
-    display.println(incoming);
-    display.println("");
-    display.println("RSSI: " + String(LoRa.packetRssi()));
-    display.println("Snr: " + String(LoRa.packetSnr()));
-    display.invertDisplay(false);
-    display.display();
-  }
-
-  // else, if the time is up, make and send a packet
-  if(millis() > nextSend)
-  {
+    // Send a message once after the random time has elapsed.
     nextSend = 0;
     unsigned long now = millis();
     String outgoing = "The time is now " + String(now) + " since boot";
     LoRa.beginPacket();
-    LoRa.write(outgoing.length());
+    // LoRa.write(outgoing.length());
     LoRa.print(outgoing);
     LoRa.endPacket();
     display.clearDisplay();
@@ -137,5 +119,32 @@ void loop() {
     display.println(now);
     display.invertDisplay(true);
     display.display();
+  }
+  else
+  {
+    // Idle and wait for a message most of the time. The screen will continue to say
+    // "message sent" until we actually receive a packet.
+    int packetSize = LoRa.parsePacket();
+    if (packetSize) {
+      Serial.print("Received packet ");
+      String LoRaData = "";
+      while (LoRa.available()) {
+        LoRaData += LoRa.readString();
+      }
+      Serial.print(LoRaData);
+  
+      int rssi = LoRa.packetRssi();
+      Serial.print(" with RSSI ");    
+      Serial.println(rssi);
+
+      display.clearDisplay();
+      display.setCursor(0,0);
+      display.println(LoRaData);
+      display.println("");
+      display.println("RSSI: " + String(LoRa.packetRssi()));
+      display.println("Snr: " + String(LoRa.packetSnr()));
+      display.invertDisplay(false);
+      display.display();
+    }
   }
 }
